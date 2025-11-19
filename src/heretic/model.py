@@ -116,9 +116,16 @@ class Model:
 
             matrices[component].append(matrix)
 
-        # Exceptions aren't suppressed here, because there is currently
-        # no alternative location for the attention out-projection.
-        try_add("attn.o_proj", layer.self_attn.o_proj.weight)
+        # Most models with full attention (self_attn.o_proj).
+        with suppress(Exception):
+            try_add("attn.o_proj", layer.self_attn.o_proj.weight)
+
+        # Qwen3-Next linear attention layers (linear_attn.out_proj).
+        with suppress(Exception):
+            try_add("attn.o_proj", layer.linear_attn.out_proj.weight)
+
+        # We need at least one attention out-projection.
+        assert "attn.o_proj" in matrices
 
         # Most dense models.
         with suppress(Exception):
