@@ -226,6 +226,15 @@ class Settings(BaseSettings):
         ),
     )
 
+    trust_remote_code: bool | None = Field(
+        default=None,
+        description=(
+            "Whether to run custom code shipped with the model repository (for its "
+            "tokenizer, configuration, and modeling files). "
+            "Unset to be prompted when a model needs it."
+        ),
+    )
+
     device_map: str | Dict[str, int | str] = Field(
         default="auto",
         description="Device map to pass to Accelerate when loading the model.",

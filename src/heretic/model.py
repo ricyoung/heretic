@@ -101,8 +101,13 @@ class Model:
         print()
         print(f"Loading model [bold]{settings.model}[/]...")
 
+        self.trusted_models = set()
+        if settings.trust_remote_code:
+            self.trusted_models.add(settings.model)
+
         self.tokenizer = AutoTokenizer.from_pretrained(
             settings.model,
+            trust_remote_code=True if settings.model in self.trusted_models else None,
             **self.revision_kwargs,
         )
 
@@ -129,8 +134,6 @@ class Model:
             if settings.max_memory
             else None
         )
-
-        self.trusted_models = set()
 
         failures: list[tuple[str, str, str]] = []
 

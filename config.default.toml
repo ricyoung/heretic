@@ -21,6 +21,11 @@ dtypes = [
 # "bnb_4bit" (4-bit quantization using bitsandbytes).
 quantization = "none"
 
+# Whether to run custom code shipped with the model repository (for its tokenizer,
+# configuration, and modeling files). Leave unset to be prompted when a model needs it.
+# Set to true for unattended runs of models with custom code.
+# trust_remote_code = true
+
 # Device map to pass to Accelerate when loading the model.
 device_map = "auto"
 
