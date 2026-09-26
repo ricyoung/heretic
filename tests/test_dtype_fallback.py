@@ -17,6 +17,7 @@ def make_settings(dtypes: list[str]) -> SimpleNamespace:
         dtypes=dtypes,
         model="test-model",
         model_commit=None,
+        trust_remote_code=None,
         max_memory=None,
         device_map=None,
         system_prompt="",
