@@ -177,6 +177,18 @@ class Context:
     def get_logits(self, prompts: list[Prompt]) -> Tensor:
         return self._model.get_logits_batched(prompts)
 
+    def get_continuations(
+        self, prompts: list[Prompt], n_tokens: int
+    ) -> tuple[Tensor, Tensor]:
+        """Greedy continuations of `n_tokens` tokens, plus a mask of valid positions."""
+        return self._model.get_continuations_batched(prompts, n_tokens)
+
+    def get_continuation_logits(
+        self, prompts: list[Prompt], continuations: Tensor
+    ) -> Tensor:
+        """Logits for each position of fixed continuations (teacher forcing)."""
+        return self._model.get_continuation_logits_batched(prompts, continuations)
+
     def get_residuals(self, prompts: list[Prompt]) -> Tensor:
         return self._model.get_residuals_batched(prompts)
 

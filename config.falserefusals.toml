@@ -1,0 +1,32 @@
+# Rename this file to config.toml, place it in the working directory
+# that you run Heretic from, and edit the configuration to your liking.
+
+# Adds a third objective that counts false refusals: refusals of harmless prompts.
+# Abliteration normally reduces them, but aggressive trials can make a model
+# refuse, apologize, or moralize on benign requests. Minimizing this score steers
+# the optimizer away from those trials.
+#
+# Note that this generates full responses for the extra prompts in every trial,
+# so each trial takes noticeably longer.
+
+scorers = [
+    { plugin = "heretic.scorers.keyword_rate.KeywordRate", optimization = "minimize" },
+    { plugin = "heretic.scorers.kl_divergence.KLDivergence", optimization = "minimize" },
+    { plugin = "heretic.scorers.keyword_rate.KeywordRate", optimization = "minimize", instance_name = "benign" },
+]
+
+# Also compare the first 8 response tokens instead of only the first one,
+# which catches damage that only shows up later in the response.
+[scorer.KLDivergence]
+tokens = 8
+
+# The "benign" instance inherits the refusal markers from [scorer.KeywordRate]
+# and only overrides its name and prompts. It uses a different slice of the
+# harmless dataset than KL divergence, so the two measurements stay independent.
+[scorer.KeywordRate_benign]
+score_name = "False refusals"
+
+[scorer.KeywordRate_benign.prompts]
+dataset = "mlabonne/harmless_alpaca"
+split = "test[100:200]"
+column = "text"

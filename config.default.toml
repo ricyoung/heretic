@@ -225,6 +225,15 @@ column = "text"
 # [scorer.KeywordRate_small.prompts]
 # split = "test[:10]"
 
+[scorer.KLDivergence]
+# Number of response tokens to measure KL divergence over.
+# With 1, only the first token is compared. With more, the original model's greedy
+# continuation is generated once, and both models are scored on those same tokens
+# (teacher forcing), averaging KL divergence over all positions up to the end of
+# the response. Higher values catch damage that only shows up after the first token,
+# at the cost of one extra forward pass per evaluation.
+tokens = 1
+
 [scorer.KLDivergence.prompts]
 dataset = "mlabonne/harmless_alpaca"
 split = "test[:100]"

@@ -3,6 +3,7 @@
 
 import torch.nn.functional as F
 from pydantic import BaseModel, Field
+from torch import Tensor
 
 from heretic.config import DatasetSpecification
 from heretic.plugin import Context
@@ -18,6 +19,18 @@ class Settings(BaseModel):
             column="text",
         ),
         description="Prompt dataset used to measure KL divergence from original model.",
+    )
+
+    tokens: int = Field(
+        default=1,
+        ge=1,
+        description=(
+            "Number of response tokens to measure KL divergence over. "
+            "With 1, only the first token is compared. With more, the original model's "
+            "greedy continuation is generated once, and both models are scored on those "
+            "same tokens (teacher forcing), averaging KL divergence over all positions "
+            "up to the end of the response."
+        ),
     )
 
 
@@ -47,21 +60,52 @@ class KLDivergence(Scorer):
         self.prompts = ctx.load_prompts(self.settings.prompts)
         print(f"* [bold]{len(self.prompts)}[/] prompts loaded")
 
-        print("* Obtaining baseline first-token probability distributions...")
-        baseline_logits = ctx.get_logits(self.prompts)
+        if self.settings.tokens == 1:
+            print("* Obtaining baseline first-token probability distributions...")
+            baseline_logits = ctx.get_logits(self.prompts)
+        else:
+            print(
+                f"* Generating baseline continuations of [bold]{self.settings.tokens}[/] tokens..."
+            )
+            self._continuations, self._mask = ctx.get_continuations(
+                self.prompts, self.settings.tokens
+            )
+            print("* Obtaining baseline probability distributions...")
+            baseline_logits = ctx.get_continuation_logits(
+                self.prompts, self._continuations
+            )
+            self._mask = self._mask.to(baseline_logits.device)
 
         self._baseline_logprobs = F.log_softmax(baseline_logits, dim=-1)
 
-    def get_score(self, ctx: Context) -> Score:
-        logits = ctx.get_logits(self.prompts)
+    def _get_kl_divergence(self, logits: Tensor) -> float:
         logprobs = F.log_softmax(logits, dim=-1)
 
+        if self.settings.tokens == 1:
+            return F.kl_div(
+                logprobs,
+                self._baseline_logprobs,
+                reduction="batchmean",
+                log_target=True,
+            ).item()
+
+        # Per-position KL divergence, shape (prompt, token), averaged over the
+        # positions that belong to the response (up to and including EOS).
         kl_divergence = F.kl_div(
             logprobs,
             self._baseline_logprobs,
-            reduction="batchmean",
+            reduction="none",
             log_target=True,
-        ).item()
+        ).sum(dim=-1)
+        return kl_divergence[self._mask].mean().item()
+
+    def get_score(self, ctx: Context) -> Score:
+        if self.settings.tokens == 1:
+            logits = ctx.get_logits(self.prompts)
+        else:
+            logits = ctx.get_continuation_logits(self.prompts, self._continuations)
+
+        kl_divergence = self._get_kl_divergence(logits)
 
         return Score(
             value=kl_divergence,

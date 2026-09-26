@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025-2026  Philipp Emanuel Weidmann <pew@worldwidemann.com> + contributors
 
+import inspect
 import math
 from contextlib import suppress
 from dataclasses import dataclass
@@ -667,6 +668,20 @@ class Model:
         prompts: list[Prompt],
         **kwargs: Any,
     ) -> tuple[BatchEncoding, GenerateDecoderOnlyOutput | LongTensor]:
+        inputs = self.tokenize_prompts(prompts)
+
+        # FIXME: The type checker has been disabled here because of the extremely complex
+        #        interplay between different generate() signatures and dynamic delegation.
+        outputs = self.model.generate(
+            **inputs,
+            **kwargs,
+            pad_token_id=self.tokenizer.pad_token_id,
+            do_sample=False,  # Use greedy decoding to ensure deterministic outputs.
+        )  # ty:ignore[call-non-callable]
+
+        return inputs, outputs
+
+    def tokenize_prompts(self, prompts: list[Prompt]) -> BatchEncoding:
         chats = [
             [
                 {"role": "system", "content": prompt.system},
@@ -700,16 +715,7 @@ class Model:
             return_token_type_ids=False,
         ).to(self.model.device)
 
-        # FIXME: The type checker has been disabled here because of the extremely complex
-        #        interplay between different generate() signatures and dynamic delegation.
-        outputs = self.model.generate(
-            **inputs,
-            **kwargs,
-            pad_token_id=self.tokenizer.pad_token_id,
-            do_sample=False,  # Use greedy decoding to ensure deterministic outputs.
-        )  # ty:ignore[call-non-callable]
-
-        return inputs, outputs
+        return inputs
 
     def get_responses(
         self,
@@ -862,6 +868,124 @@ class Model:
 
         for batch in batchify(prompts, self.settings.batch_size):
             logits.append(self.get_logits(batch))
+
+        return torch.cat(logits, dim=0)
+
+    def get_continuations(
+        self, prompts: list[Prompt], n_tokens: int
+    ) -> tuple[Tensor, Tensor]:
+        """
+        Greedily generates `n_tokens` tokens per prompt.
+
+        Returns the token IDs, shape (prompt, n_tokens), and a boolean mask of the
+        same shape marking positions up to and including the first EOS token.
+        Positions after EOS hold padding and must be ignored.
+        """
+        inputs, outputs = self.generate(prompts, max_new_tokens=n_tokens)
+        # This cast is valid because generate() returns token IDs by default.
+        outputs = cast(LongTensor, outputs)
+        continuations = outputs[:, cast(Tensor, inputs["input_ids"]).shape[1] :]
+
+        # Generation stops early once every sequence has emitted EOS.
+        missing = n_tokens - continuations.shape[1]
+        if missing > 0:
+            continuations = F.pad(
+                continuations, (0, missing), value=self.tokenizer.pad_token_id
+            )
+
+        eos_ids = self.model.generation_config.eos_token_id
+        if eos_ids is None:
+            eos_ids = []
+        elif isinstance(eos_ids, int):
+            eos_ids = [eos_ids]
+        eos_ids = set(eos_ids)
+        if self.tokenizer.eos_token_id is not None:
+            eos_ids.add(self.tokenizer.eos_token_id)
+
+        is_eos = torch.isin(
+            continuations, torch.tensor(sorted(eos_ids), device=continuations.device)
+        )
+        # A position is valid if no EOS occurred strictly before it.
+        eos_before = torch.cumsum(is_eos, dim=1) - is_eos.long()
+        mask = eos_before == 0
+
+        return continuations.cpu(), mask.cpu()
+
+    def get_continuations_batched(
+        self, prompts: list[Prompt], n_tokens: int
+    ) -> tuple[Tensor, Tensor]:
+        continuations = []
+        masks = []
+
+        for batch in batchify(prompts, self.settings.batch_size):
+            batch_continuations, batch_mask = self.get_continuations(batch, n_tokens)
+            continuations.append(batch_continuations)
+            masks.append(batch_mask)
+
+        return torch.cat(continuations, dim=0), torch.cat(masks, dim=0)
+
+    def get_continuation_logits(
+        self, prompts: list[Prompt], continuations: Tensor
+    ) -> Tensor:
+        """
+        Returns the raw logits the model assigns to each position of a fixed
+        continuation, shape (prompt, n_tokens, vocab), using a single forward pass.
+
+        Scoring a fixed continuation (teacher forcing) keeps every position
+        conditioned on the same text for all models being compared.
+        """
+        inputs = self.tokenize_prompts(prompts)
+        continuations = continuations.to(self.model.device)
+        n_tokens = continuations.shape[1]
+
+        input_ids = torch.cat([inputs["input_ids"], continuations], dim=1)
+        attention_mask = torch.cat(
+            [inputs["attention_mask"], torch.ones_like(continuations)], dim=1
+        )
+
+        kwargs: dict[str, Any] = {}
+        # Like generate(), only compute the logits that are actually needed
+        # when the model supports it, to avoid materializing (seq, vocab) logits.
+        base_model = (
+            self.model.get_base_model()
+            if isinstance(self.model, PeftModel)
+            else self.model
+        )
+        if "logits_to_keep" in inspect.signature(base_model.forward).parameters:
+            kwargs["logits_to_keep"] = n_tokens + 1
+
+        with torch.no_grad():
+            outputs = self.model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                use_cache=False,
+                **kwargs,
+            )
+
+        # The logits at position i predict token i + 1, so the logits predicting the
+        # continuation start at the last prompt token and end before the last token.
+        logits = outputs.logits[:, -n_tokens - 1 : -1, :]
+
+        if self.settings.offload_outputs_to_cpu:
+            del outputs
+            logits = logits.cpu()
+            empty_cache()
+
+        return logits
+
+    def get_continuation_logits_batched(
+        self, prompts: list[Prompt], continuations: Tensor
+    ) -> Tensor:
+        logits = []
+
+        start = 0
+        for batch in batchify(prompts, self.settings.batch_size):
+            logits.append(
+                self.get_continuation_logits(
+                    batch, continuations[start : start + len(batch)]
+                )
+            )
+            start += len(batch)
 
         return torch.cat(logits, dim=0)
 
