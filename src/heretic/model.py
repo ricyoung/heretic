@@ -4,7 +4,6 @@
 import math
 from contextlib import suppress
 from dataclasses import dataclass
-from tempfile import TemporaryDirectory
 from typing import Any, Type, cast
 
 import torch
@@ -31,9 +30,8 @@ from transformers.generation import (
     GenerateDecoderOnlyOutput,  # ty:ignore[possibly-missing-import]
 )
 
-from .config import ExportStrategy, QuantizationMethod, RowNormalization, Settings
+from .config import QuantizationMethod, RowNormalization, Settings
 from .system import empty_cache
-from .tensor_check import check_tensors, tensor_shapes
 from .utils import Prompt, batchify, format_exception, print
 
 
@@ -89,7 +87,6 @@ class Model:
     # Set for multimodal models, None for text-only ones.
     processor: ProcessorMixin | None
     peft_config: LoraConfig
-    source_shapes: dict[str, list[int]]
     dtype: torch.dtype
 
     def __init__(self, settings: Settings):
@@ -212,28 +209,6 @@ class Model:
             raise Exception(
                 "Failed to load model with all configured dtypes:\n" + details
             )
-
-        # A PEFT adapter source has no model weights to compare a save against.
-        self.source_shapes = (
-            {}
-            if self.model._hf_peft_config_loaded
-            else tensor_shapes(settings.model, **self.revision_kwargs)
-        )
-
-        # A quantized model saves bitsandbytes tensors that the source checkpoint lacks.
-        if (
-            settings.preflight_check
-            and self.source_shapes
-            and settings.evaluate_model is None  # evaluation runs never save
-            and settings.quantization == QuantizationMethod.NONE
-            and settings.export_strategy != ExportStrategy.ADAPTER  # no merged save
-        ):
-            try:
-                with TemporaryDirectory(dir=".", prefix="heretic-preflight-") as path:
-                    self.model.save_pretrained(path)
-                    check_tensors(self.source_shapes, path)
-            except Exception as error:
-                print(f"* Preflight save failed: {error}", markup=False)
 
         self._apply_lora()
 

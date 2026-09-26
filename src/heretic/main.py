@@ -76,13 +76,11 @@ from .config import ExportStrategy, QuantizationMethod
 from .evaluator import Evaluator
 from .model import AbliterationParameters, Model, get_model_class
 from .reproduce import (
-    check_differences,
     check_environment,
     collect_reproducibles,
     load_reproduction_information,
 )
 from .system import empty_cache, get_accelerator_info
-from .tensor_check import check_tensors
 from .utils import (
     ask_if_unset,
     format_duration,
@@ -1051,7 +1049,6 @@ def run():
                             if strategy is None:
                                 continue
 
-                            differences = None
                             if strategy == ExportStrategy.ADAPTER:
                                 print("Saving LoRA adapter...")
                                 model.model.save_pretrained(
@@ -1070,15 +1067,11 @@ def run():
                                 model.tokenizer.save_pretrained(save_directory)
                                 if model.processor is not None:
                                     model.processor.save_pretrained(save_directory)
-                                differences = check_tensors(
-                                    model.source_shapes, save_directory
-                                )
                                 reset_trial_model()
 
                             print(f"Model saved to [bold]{save_directory}[/].")
 
                             if reproduction_mode:
-                                check_differences(differences, reproduction_information)
                                 print("Verifying hashes of weight files...")
 
                                 for (
@@ -1137,8 +1130,6 @@ def run():
                             )
                             if not repo_id:
                                 continue
-                            if "/" not in repo_id:
-                                repo_id = f"{user['name']}/{repo_id}"
 
                             visibility = ask_if_unset(
                                 None
@@ -1226,7 +1217,6 @@ def run():
                             else:
                                 reproducibility_information = "none"
 
-                            differences = None
                             if strategy == ExportStrategy.ADAPTER:
                                 print("Uploading LoRA adapter...")
                                 model.model.push_to_hub(
@@ -1257,9 +1247,6 @@ def run():
                                         private=private,
                                         token=token,
                                     )
-                                differences = check_tensors(
-                                    model.source_shapes, repo_id, token=token
-                                )
                                 reset_trial_model()
 
                             if is_hf_path(settings.model):
@@ -1312,7 +1299,6 @@ def run():
                                         include_system_information=(
                                             reproducibility_information == "full"
                                         ),
-                                        tensor_differences=differences,
                                     )
                                 finally:
                                     settings.export_strategy = current_export_strategy
@@ -1320,7 +1306,6 @@ def run():
                             print(f"Model uploaded to [bold]{repo_id}[/].")
 
                             if reproduction_mode:
-                                check_differences(differences, reproduction_information)
                                 print("Verifying hashes of weight files...")
 
                                 api = HfApi()

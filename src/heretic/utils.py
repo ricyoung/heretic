@@ -562,7 +562,6 @@ def generate_reproduce_json(
     timestamp: str,
     uploaded_model_hashes: dict[str, str],
     include_system_information: bool,
-    tensor_differences: dict[str, Any] | None,
 ) -> str:
     """Generates the contents of a reproduce.json file for the reproduce/ folder."""
 
@@ -589,7 +588,6 @@ def generate_reproduce_json(
         },
         "scores": trial.user_attrs["scores"],
         "hashes": uploaded_model_hashes,
-        "tensor_differences": tensor_differences,
     }
 
     if include_system_information:
@@ -639,7 +637,6 @@ def create_reproduce_folder(
     trial: Trial | FrozenTrial,
     uploaded_model_hashes: dict[str, str],
     include_system_information: bool,
-    tensor_differences: dict[str, Any] | None,
 ):
     reproduce_dir = path / "reproduce"
     reproduce_dir.mkdir(parents=True, exist_ok=True)
@@ -677,7 +674,6 @@ def create_reproduce_folder(
             timestamp=timestamp,
             uploaded_model_hashes=uploaded_model_hashes,
             include_system_information=include_system_information,
-            tensor_differences=tensor_differences,
         ),
         encoding="utf-8",
     )
@@ -705,7 +701,6 @@ def upload_reproduce_folder(
     checkpoint_path: str | Path,
     trial: Trial | FrozenTrial,
     include_system_information: bool,
-    tensor_differences: dict[str, Any] | None,
 ):
     api = huggingface_hub.HfApi()
     info = api.model_info(repo_id=repo_id, files_metadata=True, token=token)
@@ -734,7 +729,6 @@ def upload_reproduce_folder(
             trial=trial,
             uploaded_model_hashes=uploaded_model_hashes,
             include_system_information=include_system_information,
-            tensor_differences=tensor_differences,
         )
 
         reproduce_dir = tmp_path / "reproduce"
