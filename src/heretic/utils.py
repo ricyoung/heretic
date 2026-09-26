@@ -344,6 +344,41 @@ def get_readme_intro(
 """
 
 
+def create_model_card(
+    settings: Settings,
+    trial: Trial | FrozenTrial,
+    contains_reproducibility_information: bool,
+) -> huggingface_hub.ModelCard | None:
+    """
+    Builds the decensored model's card by extending the original model's card.
+
+    Returns None if the original model is a local folder without a model card.
+    """
+    if is_hf_path(settings.model):
+        card = huggingface_hub.ModelCard.load(settings.model)
+    else:
+        card_path = Path(settings.model) / huggingface_hub.constants.REPOCARD_NAME
+        if not card_path.exists():
+            return None
+        card = huggingface_hub.ModelCard.load(card_path)
+
+    if card.data is None:
+        card.data = huggingface_hub.ModelCardData()
+    if card.data.tags is None:
+        card.data.tags = []
+    card.data.tags.append("heretic")
+    card.data.tags.append("uncensored")
+    card.data.tags.append("decensored")
+    card.data.tags.append("abliterated")
+    if contains_reproducibility_information:
+        card.data.tags.append("reproducible")
+    card.text = (
+        get_readme_intro(settings, trial, contains_reproducibility_information)
+        + card.text
+    )
+    return card
+
+
 def generate_config_toml(settings: Settings) -> str:
     """Serializes the full Settings object to TOML."""
 

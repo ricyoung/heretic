@@ -56,7 +56,7 @@ import questionary
 import torch
 import torch.nn.functional as F
 import transformers
-from huggingface_hub import HfApi, ModelCard, ModelCardData
+from huggingface_hub import HfApi
 from lm_eval.models.huggingface import HFLM
 from optuna import Trial, TrialPruned
 from optuna.exceptions import ExperimentalWarning
@@ -83,10 +83,10 @@ from .reproduce import (
 from .system import empty_cache, get_accelerator_info
 from .utils import (
     ask_if_unset,
+    create_model_card,
     format_duration,
     format_exception,
     get_file_sha256,
-    get_readme_intro,
     get_trial_parameters,
     is_hf_path,
     load_prompts,
@@ -803,6 +803,10 @@ def run():
         if len(study.trials) == settings.n_trials:
             study.set_user_attr("finished", True)
 
+    # A token entered interactively is kept in memory for the rest of the session
+    # (never on disk), so repeated uploads don't prompt for it again.
+    session_token: str | None = None
+
     trial_loop_active = True
 
     while trial_loop_active:
@@ -1071,6 +1075,18 @@ def run():
 
                             print(f"Model saved to [bold]{save_directory}[/].")
 
+                            card = create_model_card(
+                                settings,
+                                trial,
+                                contains_reproducibility_information=False,
+                            )
+                            if card is not None:
+                                card.save(
+                                    Path(save_directory)
+                                    / huggingface_hub.constants.REPOCARD_NAME
+                                )
+                                print("Model card saved.")
+
                             if reproduction_mode:
                                 print("Verifying hashes of weight files...")
 
@@ -1100,7 +1116,7 @@ def run():
                             # We don't use huggingface_hub.login() because that stores the token on disk,
                             # and since this program will often be run on rented or shared GPU servers,
                             # it's better to not persist credentials.
-                            token = huggingface_hub.get_token()
+                            token = session_token or huggingface_hub.get_token()
                             if not token:
                                 # NOTE: Unlike for most other values obtained from interactive inputs, it is
                                 #       not possible to set the token via the settings. This is a security
@@ -1120,6 +1136,7 @@ def run():
                             )
                             email = user.get("email", "no email found")
                             print(f"Logged in as [bold]{fullname} ({email})[/]")
+                            session_token = token
 
                             repo_id = ask_if_unset(
                                 settings.upload_repo_id,
@@ -1249,37 +1266,14 @@ def run():
                                     )
                                 reset_trial_model()
 
-                            if is_hf_path(settings.model):
-                                card = ModelCard.load(settings.model)
-                            else:
-                                card_path = (
-                                    Path(settings.model)
-                                    / huggingface_hub.constants.REPOCARD_NAME
-                                )
-                                if card_path.exists():
-                                    card = ModelCard.load(card_path)
-                                else:
-                                    card = None
-
+                            card = create_model_card(
+                                settings,
+                                trial,
+                                contains_reproducibility_information=(
+                                    reproducibility_information != "none"
+                                ),
+                            )
                             if card is not None:
-                                if card.data is None:
-                                    card.data = ModelCardData()
-                                if card.data.tags is None:
-                                    card.data.tags = []
-                                card.data.tags.append("heretic")
-                                card.data.tags.append("uncensored")
-                                card.data.tags.append("decensored")
-                                card.data.tags.append("abliterated")
-                                if reproducibility_information != "none":
-                                    card.data.tags.append("reproducible")
-                                card.text = (
-                                    get_readme_intro(
-                                        settings,
-                                        trial,
-                                        reproducibility_information != "none",
-                                    )
-                                    + card.text
-                                )
                                 card.push_to_hub(repo_id, token=token)
 
                             if reproducibility_information != "none":
