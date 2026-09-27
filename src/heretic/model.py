@@ -774,12 +774,24 @@ class Model:
         # This cast is valid because we passed output_hidden_states=True above.
         hidden_states = cast(tuple[tuple[FloatTensor]], outputs.hidden_states)[0]
 
+        def last_position_residual(layer_hidden_states: Tensor) -> Tensor:
+            # layer_hidden_states has shape (prompt, position, component),
+            # so this extracts the hidden states at the end of each prompt.
+            residual = layer_hidden_states[:, -1]
+            # Models with multiple residual streams (e.g. manifold-constrained
+            # hyper-connections) report (prompt, position, stream, component).
+            # Such models average their streams into the final hidden state,
+            # so collapse them the same way.
+            if residual.dim() == 3:
+                residual = residual.mean(dim=1)
+            return residual
+
         # The returned tensor has shape (prompt, layer, component).
         residuals = torch.stack(
-            # layer_hidden_states has shape (prompt, position, component),
-            # so this extracts the hidden states at the end of each prompt,
-            # and stacks them up over the layers.
-            [layer_hidden_states[:, -1, :] for layer_hidden_states in hidden_states],
+            [
+                last_position_residual(layer_hidden_states)
+                for layer_hidden_states in hidden_states
+            ],
             dim=1,
         )
 
