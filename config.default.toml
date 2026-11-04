@@ -368,3 +368,66 @@ column = "text"
 dataset = "mlabonne/harmful_behaviors"
 split = "train[:400]"
 column = "text"
+
+
+[modifier.SOM]
+# Multi-directional refusal suppression with Self-Organizing Maps
+# (Piras et al. 2025, https://arxiv.org/abs/2511.08379).
+# Use with: modifiers = [{ plugin = "heretic.modifiers.som.SOM" }]
+
+# Number of SOM neurons along the x-axis and the y-axis of the map.
+som_x = 4
+som_y = 4
+
+# Grid topology of the SOM. Options: "rectangular", "hexagonal".
+som_topology = "hexagonal"
+
+# Number of directions (k) to ablate per layer. These are derived from the k SOM
+# neurons that win the most bad residuals. Must not exceed som_x * som_y.
+n_directions = 4
+
+# Number of online SOM training iterations.
+som_iterations = 10000
+
+# Initial SOM learning rate (decays as lr / (1 + t / (T / 2))).
+som_learning_rate = 0.01
+
+# Initial radius of the Gaussian SOM neighborhood function, in grid units.
+som_sigma = 0.5
+
+# Seed for the SOM initialization and sampling order. If unset, the global seed is used.
+# som_seed = 0
+
+# Whether to adjust each SOM direction so that only the component that is
+# orthogonal to the good mean direction is ablated.
+orthogonalize_direction = true
+
+# Whether to Gram-Schmidt orthonormalize the k directions (in rank order) before
+# ablating them, so that at full strength the k-dimensional subspace is projected out exactly.
+orthonormalize_directions = true
+
+# How to apply row normalization of the weights. Options:
+# "none" (no normalization),
+# "pre" (compute LoRA adapter relative to row-normalized weights),
+# "full" (like "pre", but renormalizes to preserve original row magnitudes).
+row_normalization = "full"
+
+# The rank of the LoRA adapter to use when "full" row normalization is used.
+# Should be at least n_directions. Without "full", the rank is exactly n_directions.
+full_normalization_lora_rank = 6
+
+# The symmetric winsorization to apply to the per-prompt, per-layer residual vectors,
+# expressed as the quantile to clamp to (between 0 and 1). Disabled by default.
+winsorization_quantile = 1.0
+
+# Dataset of prompts that tend to produce desirable responses.
+[modifier.SOM.good_prompts]
+dataset = "mlabonne/harmless_alpaca"
+split = "train[:400]"
+column = "text"
+
+# Dataset of prompts that tend to produce undesirable responses.
+[modifier.SOM.bad_prompts]
+dataset = "mlabonne/harmful_behaviors"
+split = "train[:400]"
+column = "text"
