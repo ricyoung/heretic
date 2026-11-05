@@ -61,10 +61,11 @@ few dominant gains, which made the ridge put its removal mass on near-dead dimen
 Measured on the real writers and gains of the edited layers (0.6, 0.8, 1.0 x depth; random v;
 notes/gamma_mpoa_tests.txt), ridge with gamma_eps = 0.1 gives off-target medians 0.14
 (Gemma-2-27B), 0.25 (Gemma-4-31B), 0.03-0.06 (OLMo-2/3), max 1.02 on Gemma-2's last
-post-attention norm (exact-zero gains), max deployed row-norm errors <= 4% (Gemma) and 0.6%
-(OLMo-3; OLMo-2's last o_proj: 40% on near-dead rows with ~0 gain, p99 1.8%), and a change of
-the write orthogonal to v below MPOA's on 23 of 24 writers. The plan's clamp with
-gamma_eps = 0.01 lowers the off-target (medians 0.01-0.17) but is unusable on these gains:
+post-attention norm (exact-zero gains), max deployed row-norm errors <= 4.1% (Gemma) and
+<= 0.6% (OLMo-2/3) except OLMo-2's last o_proj (40% on near-dead rows with ~0 gain, p99 1.8%;
+MPOA <= 1.1% everywhere), and a change of the write orthogonal to v below MPOA's on 23 of 24
+writers. The plan's clamp with gamma_eps = 0.01 lowers the off-target (medians 0.007-0.17)
+but is unusable on these gains:
 Gemma-2's last o_proj gets a max row-norm error of 370% (mean 48%) and a 6.6% shrink of its
 write, Gemma-4 52% and 1.8%. The default (ridge, 0.1) therefore deviates from the plan's clamp;
 it needs the PI's sign-off. gamma_inverse = "clamp" reproduces the plan's form exactly.
